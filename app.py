@@ -10,23 +10,38 @@ url = st.text_input("Dán link TikTok hoặc Facebook vào đây:")
 text_follow = st.text_input("Nội dung hiển thị bên dưới:", "Follow for more!")
 
 
+def get_full_url(short_url):
+  """Tự động chuyển link rút gọn (vt.tiktok.com) thành link full"""
+  try:
+    response = requests.head(
+        short_url, allow_redirects=True, timeout=10, headers={"User-Agent": "Mozilla/5.0"}
+    )
+    return response.url
+  except Exception:
+    return short_url
+
+
 def download_no_watermark(video_url, output_path):
   api_endpoint = "https://api.cobalt.tools/api/json"
   headers = {
       "Accept": "application/json",
       "Content-Type": "application/json",
+      "User-Agent": "Mozilla/5.0",
   }
-  payload = {"url": video_url, "videoQuality": "720"}
+
+  # Giải nén link trước khi gửi sang API
+  full_url = get_full_url(video_url)
+  payload = {"url": full_url, "videoQuality": "720"}
 
   try:
     response = requests.post(
-        api_endpoint, json=payload, headers=headers, timeout=15
+        api_endpoint, json=payload, headers=headers, timeout=20
     )
     data = response.json()
 
     if "url" in data:
       direct_link = data["url"]
-      video_bytes = requests.get(direct_link, timeout=30).content
+      video_bytes = requests.get(direct_link, timeout=40).content
       with open(output_path, "wb") as f:
         f.write(video_bytes)
       return True
