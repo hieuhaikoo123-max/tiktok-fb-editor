@@ -1,7 +1,7 @@
 import os
 import subprocess
-import ffmpeg
 import requests
+import ffmpeg
 import streamlit as st
 
 st.set_page_config(page_title="Video Editor", layout="centered")
@@ -10,70 +10,46 @@ st.title("Tool Render Video TikTok & Facebook")
 url = st.text_input("Dán link TikTok hoặc Facebook vào đây:")
 text_follow = st.text_input("Nội dung hiển thị bên dưới:", "Follow for more!")
 
-def download_tiktok(video_url, output_path):
-    """Sử dụng TikWM API với Header chuẩn browser"""
-    try:
-        api_url = "https://www.tikwm.com/api/"
-        data = {"url": video_url, "hd": 1}
-        
-        # Giả lập User-Agent đầy đủ của Chrome trên máy tính
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
-        }
-
-        res = requests.post(api_url, data=data, headers=headers, timeout=15).json()
-
-        if res.get("code") == 0:
-            play_url = res["data"].get("play") or res["data"].get("wmplay")
-            if play_url and not play_url.startswith("http"):
-                play_url = "https://www.tikwm.com" + play_url
-
-            video_bytes = requests.get(play_url, headers=headers, timeout=30).content
-            with open(output_path, "wb") as f:
-                f.write(video_bytes)
-            return True
-    except Exception as e:
-        st.write(f"TikWM Error: {e}")
-    return False
-
-def download_tiktok_backup(video_url, output_path):
-    """API dự phòng dùng SSSTik nếu TikWM thất bại"""
-    try:
-        api_url = "https://lovetik.com/api/ajax/search"
-        data = {"query": video_url}
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
-        }
-        res = requests.post(api_url, data=data, headers=headers, timeout=15).json()
-        if res.get("status") == "ok" and res.get("links"):
-            # Lấy link tải không watermark
-            dl_url = res["links"][0]["a"]
-            video_bytes = requests.get(dl_url, headers=headers, timeout=30).content
-            with open(output_path, "wb") as f:
-                f.write(video_bytes)
-            return True
-    except Exception as e:
-        st.write(f"Backup API Error: {e}")
-    return False
-
-def download_generic(video_url, output_path):
-    """Dùng yt-dlp dự phòng cho Facebook/nền tảng khác"""
+def download_with_ytdlp(video_url, output_path):
+    """Tải video bằng yt-dlp với cấu hình vượt rào anti-bot"""
     try:
         cmd = [
             "yt-dlp",
             "-o", output_path,
             "--no-playlist",
-            "--format", "mp4",
+            "--format", "mp4/best",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--referer", "https://www.tiktok.com/",
             video_url
         ]
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode == 0 and os.path.exists(output_path):
+            return True
+        else:
+            st.write(f"Log lỗi yt-dlp: {result.stderr}")
+    except Exception as e:
+        st.write(f"Lỗi thực thi: {e}")
+    return False
+
+def download_tikwm_direct(video_url, output_path):
+    """Phương án dự phòng 2"""
+    try:
+        api_url = f"https://www.tikwm.com/api/?url={video_url}"
+        res = requests.get(api_url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }, timeout=10).json()
+        
+        if res.get("code") == 0:
+            play_url = res["data"]["play"]
+            if not play_url.startswith("http"):
+                play_url = "https://www.tikwm.com" + play_url
+            video_data = requests.get(play_url, timeout=20).content
+            with open(output_path, "wb") as f:
+                f.write(video_data)
+            return True
     except Exception:
-        return False
+        pass
+    return False
 
 if st.button("Tải & Render Video"):
     if not url:
@@ -88,15 +64,13 @@ if st.button("Tải & Render Video"):
             if os.path.exists(output_file):
                 os.remove(output_file)
 
-            # Thử lần lượt các phương thức tải
-            success = download_tiktok(url, input_file)
+            # Thử tải video
+            success = download_with_ytdlp(url, input_file)
             if not success:
-                success = download_tiktok_backup(url, input_file)
-            if not success:
-                success = download_generic(url, input_file)
+                success = download_tikwm_direct(url, input_file)
 
             if not success:
-                st.error("Không thể tải video từ liên kết này. Vui lòng kiểm tra lại đường dẫn!")
+                st.error("Không thể tải video. Hãy kiểm tra phần log thông báo ở trên để biết nguyên nhân cụ thể!")
             else:
                 try:
                     stream_in = ffmpeg.input(input_file)
@@ -133,4 +107,4 @@ if st.button("Tải & Render Video"):
 
                 except Exception as e:
                     st.error(f"Lỗi khi render video: {e}")
-          
+        
