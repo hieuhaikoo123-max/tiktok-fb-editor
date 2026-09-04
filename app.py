@@ -1,39 +1,41 @@
 import os
 import subprocess
-import requests
-import ffmpeg
 import streamlit as st
 
-st.set_page_config(page_title="Video Editor", layout="centered")
-st.title("Tool Render Video TikTok & Facebook")
+st.set_page_config(page_title="Render Video MP4")
+st.title("Công cụ render video từ file MP4")
 
-url = st.text_input("Dán link TikTok hoặc Facebook vào đây:")
-text_follow = st.text_input("Nội dung hiển thị bên dưới:", "Follow for more!")
+# 1. Chọn file MP4 từ bộ nhớ điện thoại
+uploaded_file = st.file_uploader("Chọn video MP4 từ máy:", type=["mp4", "mov", "mkv"])
 
-def download_with_ytdlp(video_url, output_path):
-    """Tải video bằng yt-dlp với cấu hình vượt rào anti-bot"""
-    try:
-        cmd = [
-            "yt-dlp",
-            "-o", output_path,
-            "--no-playlist",
-            "--format", "mp4/best",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--referer", "https://www.tiktok.com/",
-            video_url
-        ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if result.returncode == 0 and os.path.exists(output_path):
-            return True
-        else:
-            st.write(f"Log lỗi yt-dlp: {result.stderr}")
-    except Exception as e:
-        st.write(f"Lỗi thực thi: {e}")
-    return False
-
-def download_tikwm_direct(video_url, output_path):
-    """Phương án dự phòng 2"""
-    try:
+if uploaded_file is not None:
+    st.video(uploaded_file)
+    
+    input_path = "input_temp.mp4"
+    output_path = "output_rendered.mp4"
+    
+    if st.button("🚀 Bắt đầu Render"):
+        with st.spinner("Đang render video... Vui lòng đợi!"):
+            # Lưu tạm video vào máy
+            with open(input_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            
+            # Lệnh FFmpeg xử lý video (thêm -preset ultrafast để render nhanh trên điện thoại)
+            cmd = f'ffmpeg -y -i "{input_path}" -c:v libx264 -preset ultrafast -c:a aac "{output_path}"'
+            subprocess.run(cmd, shell=True)
+            
+            if os.path.exists(output_path):
+                st.success("Render hoàn tất!")
+                # Nút tải video kết quả về điện thoại
+                with open(output_path, "rb") as file:
+                    st.download_button(
+                        label="⬇️ Tải video đã render về máy",
+                        data=file,
+                        file_name="video_rendered.mp4",
+                        mime="video/mp4"
+                    )
+            else:
+                st.error("Render thất bại! Vui lòng kiểm tra lại.")
         api_url = f"https://www.tikwm.com/api/?url={video_url}"
         res = requests.get(api_url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
