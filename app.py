@@ -2,38 +2,72 @@ import os
 import subprocess
 import streamlit as st
 
-st.set_page_config(page_title="Render Video MP4")
-st.title("Công cụ render video từ file MP4")
+st.set_page_config(page_title="Render Video Shorts/Reels", layout="centered")
+st.title("🎬 Tool Render Video Tự Động")
 
-# 1. Chọn file MP4 từ bộ nhớ điện thoại
-uploaded_file = st.file_uploader("Chọn video MP4 từ máy:", type=["mp4", "mov", "mkv"])
+uploaded_file = st.file_uploader("Chọn video MP4 từ điện thoại", type=["mp4", "mov", "mkv"])
+
+# Tuỳ chọn chữ ở bên dưới (mặc định là FOLLOW)
+sub_text = st.text_input("Nội dung chữ bên dưới video:", value="FOLLOW")
 
 if uploaded_file is not None:
     st.video(uploaded_file)
     
-    input_path = "input_temp.mp4"
-    output_path = "output_rendered.mp4"
+    input_path = "input_raw.mp4"
+    output_path = "output_follow.mp4"
     
-    if st.button("🚀 Bắt đầu Render"):
-        with st.spinner("Đang render video... Vui lòng đợi!"):
-            # Lưu tạm video vào máy
+    if st.button("🚀 Bắt đầu Render Video"):
+        with st.spinner("Đang xử lý thu nhỏ, làm mờ nền và chèn FOLLOW... Vui lòng đợi!"):
+            # 1. Lưu file tạm
             with open(input_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
-            # Lệnh FFmpeg xử lý video (thêm -preset ultrafast để render nhanh trên điện thoại)
-            cmd = f'ffmpeg -y -i "{input_path}" -c:v libx264 -preset ultrafast -c:a aac "{output_path}"'
-            subprocess.run(cmd, shell=True)
-            
+            # Xóa file output cũ nếu có
             if os.path.exists(output_path):
-                st.success("Render hoàn tất!")
-                # Nút tải video kết quả về điện thoại
+                os.remove(output_path)
+            
+            # 2. Bộ lọc FFmpeg:
+            # - Tạo nền 1080x1920 làm mờ bằng boxblur
+            # - Video chính thu nhỏ 70% (scale=1080*0.7:-2 = 756px), kéo lên trên y=(H-h)/2 - 150
+            # - Vẽ nút FOLLOW: hộp trắng box=1, chữ vàng fontcolor=yellow, viền chữ đen borderw=3
+            filter_complex = (
+                "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5[bg];"
+                "[0:v]scale=756:-2[fg];"
+                "[bg][fg]overlay=(W-w)/2:(H-h)/2-160[v1];"
+                f"[v1]drawtext=text='{sub_text}':fontcolor=yellow:fontsize=52:bordercolor=black:borderw=3:"
+                "x=(w-text_w)/2:y=h/2+330:box=1:boxcolor=white:boxborderw=18[v]"
+            )
+            
+            # 3. Chạy FFmpeg
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", input_path,
+                "-filter_complex", filter_complex,
+                "-map", "[v]",
+                "-map", "0:a?",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-c:a", "aac",
+                "-shortest",
+                output_path
+            ]
+            
+            process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            
+            # 4. Hiển thị kết quả
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                st.success("🎉 Render hoàn tất!")
+                st.video(output_path)
                 with open(output_path, "rb") as file:
                     st.download_button(
-                        label="⬇️ Tải video đã render về máy",
+                        label="⬇️ Tải video về máy",
                         data=file,
                         file_name="video_rendered.mp4",
                         mime="video/mp4"
                     )
+            else:
+                st.error("Render gặp lỗi! Chi tiết:")
+                st.code(process.stderr)
             else:
                 st.error("Render thất bại! Vui lòng kiểm tra lại.")
         api_url = f"https://www.tikwm.com/api/?url={video_url}"
